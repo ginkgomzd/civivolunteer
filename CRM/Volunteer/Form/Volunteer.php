@@ -55,6 +55,8 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       'entity_table' => CRM_Event_DAO_Event::$_tableName,
     )));
 
+    if ($project === false) return false;
+
     $target_contact_id = $project ? $project->target_contact_id : NULL;
 
     if (!$target_contact_id) {
@@ -69,7 +71,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       'target_contact_id' => $target_contact_id,
     );
 
-    $forms = civicrm_api3('EntityForm', 'get', 
+    $forms = civicrm_api3('EntityForm', 'get',
       array('entity_id' => $project->id));
 
     if ($forms['count'] > 1) {
@@ -118,7 +120,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
 
    /**
     * Does a UFJoin lookup of an entity_form ID
-    * 
+    *
     * @param type $fid form ID
     * @return array of UFGroup (profile) IDs
     */
@@ -230,13 +232,24 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       CRM_Volunteer_BAO_Need::create($need);
     }
 
-    /** process profiles **/
+    if (key_exists('custom_signup_profiles', $form)) {
+      $this->updateProfileSelections($project->id, $form['custom_signup_profiles']);
+    }
 
-    $entity_form = civicrm_api3('EntityForm', 'getsingle', array(
+    parent::endPostProcess();
+  }
+
+  private function updateProfileSelections($project_id, $form) {
+    $entity_form = civicrm_api('EntityForm', 'getsingle', array(
       'entity_table' => 'civicrm_volunteer_project',
-      'entity_id' => $project->id,
+      'entity_id' => $project_id,
       'return' => 'id'
     ));
+
+    if ($entity_form['is_error']) {
+      // an EntityForm hasn't been created yet
+      return false;
+    }
 
     // first delete all past entries
     CRM_Core_BAO_UFJoin::deleteAll(
@@ -244,14 +257,13 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
     );
 
     // store the new selections;
-    foreach($form['custom_signup_profiles'] as $idx => $profile_id) {
+    foreach($custom_signup_profiles as $idx => $profile_id) {
       self::addProfileToFormEntity($entity_form['id'], $profile_id, $idx);
     }
 
-    self::validateProfileForDedupe($form['custom_signup_profiles']);
-
-    parent::endPostProcess();
+    self::validateProfileForDedupe($custom_signup_profiles);
   }
+
   static function addProfileToFormEntity($fid, $pid, $weight) {
     $ufJoinParams = self::createUFJoinParams($fid);
     $ufJoinParams['uf_group_id'] = $pid;
