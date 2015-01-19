@@ -161,7 +161,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       $defaults["custom_signup_profiles[$key]"] = $value;
     }
     $this->assign('profileSignUpMultiple', array_keys($groupids));
-//    var_dump($groupids); die;
+
     $this->assign('profileSignUpCounter', count($groupids));
 
     return $defaults;
@@ -251,15 +251,16 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
     /* @var $project CRM_Volunteer_BAO_Project */
     $project = $this->saveProject($params);
 
-    if (key_exists('custom_signup_profiles', $form)) {
+    if (CRM_Utils_Array::value('custom_signup_profiles', $form, FALSE)) {
       $this->updateProfileSelections($project->id, $form['custom_signup_profiles']);
     }
 
     parent::endPostProcess();
   }
 
-  private function updateProfileSelections($project_id, $form) {
+  private function updateProfileSelections($project_id, $custom_signup_profiles) {
     $entity_form = civicrm_api('EntityForm', 'getsingle', array(
+      'version' => '3',
       'entity_table' => 'civicrm_volunteer_project',
       'entity_id' => $project_id,
       'return' => 'id'
@@ -271,9 +272,8 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
     }
 
     // first delete all past entries
-    CRM_Core_BAO_UFJoin::deleteAll(
-      self::createUFJoinParams($entity_form['id'])
-    );
+    $params = self::createUFJoinParams($entity_form['id']);
+    CRM_Core_BAO_UFJoin::deleteAll($params);
 
     // store the new selections;
     foreach($custom_signup_profiles as $idx => $profile_id) {
