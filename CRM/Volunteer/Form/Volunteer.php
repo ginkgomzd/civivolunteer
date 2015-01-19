@@ -320,7 +320,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
   }
 
   /**
-   * Return a descriptive name fwor the page, used in wizard header
+   * Return a descriptive name for the page, used in wizard header
    *
    * @return string
    * @access public
