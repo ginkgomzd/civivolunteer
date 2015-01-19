@@ -40,6 +40,47 @@
  */
 class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
 
+  /***
+   * @var $project CRM_Volunteer_BAO_Project
+   */
+  protected $_project;
+
+  /***
+   * Get the civiVolunteer Project for this Event.
+   * CAUTION: Returns only the first if there are multiple.
+   */
+  protected function getProject() {
+    if ($this->_project === NULL) {
+      return $this->_project = current(CRM_Volunteer_BAO_Project::retrieve(array(
+        'entity_id' => $this->_id,
+        'entity_table' => CRM_Event_DAO_Event::$_tableName,
+      )));
+    } else {
+      return $this->_project;
+    }
+  }
+
+  /***
+   * Save (or create a project)
+   */
+  protected function saveProject($params) {
+    $this->_project = CRM_Volunteer_BAO_Project::create($params);
+
+    // if we created a project:
+    if (!key_exists('id', $params)) {
+        // create the flexible need
+      $form = $this->getSubmitValues();
+      if (CRM_Utils_Array::value('is_active', $form, 0) === '1') {
+        $need = array(
+          'project_id' => $this->_project->id,
+          'is_flexible' => '1',
+          'visibility_id' => CRM_Core_OptionGroup::getValue('visibility', 'public', 'name'),
+        );
+        CRM_Volunteer_BAO_Need::create($need);
+      }
+    }
+    return $this->_project;
+  }
   /**
    * This function sets the default values for the form. For edit/view mode
    * the default values are retrieved from the database
@@ -50,11 +91,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
    */
   function setDefaultValues() {
 
-    $project = current(CRM_Volunteer_BAO_Project::retrieve(array(
-      'entity_id' => $this->_id,
-      'entity_table' => CRM_Event_DAO_Event::$_tableName,
-    )));
-
+    $project = $this->getProject();
     if ($project === false) return false;
 
     $target_contact_id = $project ? $project->target_contact_id : NULL;
@@ -94,8 +131,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       self::addProfileToFormEntity($form_id, $api_result['id'], 1 );
 
       $groupids = array($api_result['id']);
-    }
-    else {
+    } else {
       $groupids = array();
       foreach (array_keys($forms['values']) as $fid){
         // TODO: support for multiple forms.
@@ -161,8 +197,6 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
    * @access public
    */
   public function buildQuickForm() {
-    $vid = NULL;
-
     parent::buildQuickForm();
 
     $this->add(
@@ -173,17 +207,8 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
 
     $this->addEntityRef('target_contact_id', ts('Select Beneficiary', array('domain' => 'org.civicrm.volunteer')), array('create' => TRUE, 'select' => array('allowClear' => FALSE)));
 
-    $params = array(
-      'entity_id' => $this->_id,
-      'entity_table' => CRM_Event_DAO_Event::$_tableName,
-    );
-    $projects = CRM_Volunteer_BAO_Project::retrieve($params);
-
-    if (count($projects) === 1) {
-      $p = current($projects);
-      $vid = $p->id;
-    }
-
+    $p = $this->getProject();
+    $vid = $p ? $p->id : NULL;
     $this->assign('vid', $vid);
   }
 
@@ -200,37 +225,17 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
     $form = $this->getSubmitValues();
     $form['is_active'] = CRM_Utils_Array::value('is_active', $form, 0);
 
-    $params = array(
-      'entity_id' => $this->_id,
-      'entity_table' => CRM_Event_DAO_Event::$_tableName,
-    );
-
-    // see if this project already exists
-    $projects = CRM_Volunteer_BAO_Project::retrieve($params);
-
-    if (count($projects)) {
+    if ($this->getProject()) {
       // force an update rather than an insert
-      $params['id'] = current($projects)->id;
+      $params['id'] = $this->getProject()->id;
     }
-
     // save the project record
     $params += array(
       'is_active' => $form['is_active'],
       'target_contact_id' => $form['target_contact_id'],
     );
     /* @var $project CRM_Volunteer_BAO_Project */
-    $project = CRM_Volunteer_BAO_Project::create($params);
-
-    // if the project doesn't already exist and the user enabled vol management,
-    // create the flexible need
-    if (count($projects) !== 1 && $form['is_active'] === '1') {
-      $need = array(
-        'project_id' => $project->id,
-        'is_flexible' => '1',
-        'visibility_id' => CRM_Core_OptionGroup::getValue('visibility', 'public', 'name'),
-      );
-      CRM_Volunteer_BAO_Need::create($need);
-    }
+    $project = $this->saveProject($params);
 
     if (key_exists('custom_signup_profiles', $form)) {
       $this->updateProfileSelections($project->id, $form['custom_signup_profiles']);
