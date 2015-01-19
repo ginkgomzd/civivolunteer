@@ -48,13 +48,13 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
   /***
    * Get the civiVolunteer Project for this Event.
    * CAUTION: Returns only the first if there are multiple.
+   *
+   * @returns $project CRM_Volunteer_BAO_Project
    */
-  protected function getProject() {
+  protected function getProject($params = NULL) {
     if ($this->_project === NULL) {
-      return $this->_project = current(CRM_Volunteer_BAO_Project::retrieve(array(
-        'entity_id' => $this->_id,
-        'entity_table' => CRM_Event_DAO_Event::$_tableName,
-      )));
+      $this->minimumProjectParams($params);
+      return $this->_project = current(CRM_Volunteer_BAO_Project::retrieve($params));
     } else {
       return $this->_project;
     }
@@ -64,13 +64,15 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
    * Save (or create a project)
    */
   protected function saveProject($params) {
+
+    $this->minimumProjectParams($params);
     $this->_project = CRM_Volunteer_BAO_Project::create($params);
 
     // if we created a project:
     if (!key_exists('id', $params)) {
-        // create the flexible need
       $form = $this->getSubmitValues();
       if (CRM_Utils_Array::value('is_active', $form, 0) === '1') {
+        // create the flexible need
         $need = array(
           'project_id' => $this->_project->id,
           'is_flexible' => '1',
@@ -80,6 +82,18 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       }
     }
     return $this->_project;
+  }
+
+  function minimumProjectParams(&$params) {
+    if(!$params) {
+      $params = array();
+    }
+    if(!key_exists('entity_id', $params)) {
+      $params['entity_id'] = $this->_id;
+    }
+    if (!key_exists('entity_table', $params)) {
+      $params['entity_table'] = CRM_Event_DAO_Event::$_tableName;
+    }
   }
   /**
    * This function sets the default values for the form. For edit/view mode
@@ -92,7 +106,6 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
   function setDefaultValues() {
 
     $project = $this->getProject();
-    if ($project === false) return false;
 
     $target_contact_id = $project ? $project->target_contact_id : NULL;
 
@@ -115,7 +128,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
       CRM_Core_Session::setStatus(ts('Found multiple custom forms for this project. This feature is not implemented yet', array('domain' => 'org.civicrm.volunteer')));
     }
 
-    if ($forms['count'] === 0) {
+    if ($forms['count'] === 0 && $project) {
       CRM_Core_Session::setStatus(ts('No custom forms found, assigning the reserved profile, "Volunteer Sign Up" to a new MultiForm entity.', array('domain' => 'org.civicrm.volunteer')));
 
       /** create form **/
@@ -225,6 +238,7 @@ class CRM_Volunteer_Form_Volunteer extends CRM_Event_Form_ManageEvent {
     $form = $this->getSubmitValues();
     $form['is_active'] = CRM_Utils_Array::value('is_active', $form, 0);
 
+    $params = array();
     if ($this->getProject()) {
       // force an update rather than an insert
       $params['id'] = $this->getProject()->id;
