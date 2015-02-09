@@ -372,6 +372,30 @@ class CRM_Volunteer_Upgrader extends CRM_Volunteer_Upgrader_Base {
   }
 
   /**
+   * Ensure a default UFJoin entry between the volunteer signup profile and
+   * any existing volunteer projects. [VOL-90]
+   *
+   * @return boolean TRUE on success
+   */
+  public function upgrade_1404() {
+    try {
+      $profile = civicrm_api3('UFGroup', 'getvalue', array('name' => 'volunteer_sign_up', 'return' => 'id'));
+      $projects = civicrm_api3('volunteer_project', 'get', array());
+
+      foreach($projects['values'] as $id => $proj) {
+        civicrm_api3('UFJoin', 'create', array(
+          'module' => 'CiviVolunteer',
+          'entity_table' => 'project',
+          'entity_id' => $id,
+          'group' => $profile,
+        ));
+      }
+    } catch (CiviCRM_API3_Exception $e) {
+      // who cares?
+    }
+  }
+
+  /**
    * Example: Run an external SQL script when the module is uninstalled
    *
   public function uninstall() {
