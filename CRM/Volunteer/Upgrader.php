@@ -377,7 +377,7 @@ class CRM_Volunteer_Upgrader extends CRM_Volunteer_Upgrader_Base {
    *
    * @return boolean TRUE on success
    */
-  public function upgrade_1404() {
+  public function upgrade_2005() {
     try {
       $profile = civicrm_api3('UFGroup', 'getvalue', array('name' => 'volunteer_sign_up', 'return' => 'id'));
       $projects = civicrm_api3('volunteer_project', 'get', array());
