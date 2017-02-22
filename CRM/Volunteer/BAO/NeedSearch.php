@@ -305,4 +305,20 @@ class CRM_Volunteer_BAO_NeedSearch {
     return ($startTimeA < $startTimeB) ? -1 : 1;
   }
 
+  /**
+   * Recommend Needs for Contact
+   */
+  public static function recommendedNeeds($cid, $dates = NULL) {
+/* Work in Progress */
+    $result = civicrm_api3('CustomGroup', 'get', array(
+      'sequential' => 1,
+      'name' => "Organization_Information",
+      'api.CustomField.get' => array('name' => "Primary_Impact_Area"),
+    ));
+
+    return $result;
+
+  }
+
+
 }
