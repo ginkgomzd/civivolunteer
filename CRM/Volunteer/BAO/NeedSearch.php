@@ -328,14 +328,35 @@ class CRM_Volunteer_BAO_NeedSearch {
 
     //add Project Data
 
-    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
+//    return $schemaInterests;
+//    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
 
+//    return self:: getCustomFieldSchema('Background_Check_Opt_In');
+    return self::autoMatchFieldByOptionGroup(self::fieldsToRecommendOn());
+
+  }
+
+  static function fieldsToRecommendOn() {
+    return array(
+      'Interests',
+      'Primary_Impact_Area',
+      'Background_Check_Opt_In',
+      'Spoken_Languages',
+      'Agreed_to_Waiver',
+      'Group_Volunteer_Interest',
+      'Availability',
+      'Board_Service_Opt_In',
+      'How_Often',
+      'Volunteer_Emergency_Support_Team_Opt_In',
+      'Other_Skills',
+      'Local_Arlington_Civic_Association_Opt_In',
+      'Spoken_Languages_Other_',
+    );
   }
 
   public static function matchingCustomFieldsMap() {
     return array(
       'Interests' => 'Primary_Impact_Area',
-
       'Background_Check_Opt_In' => 'Background_Check_Opt_In',
       'Spoken_Languages' => 'Spoken_Languages',
       'Agreed_to_Waiver' => 'Agreed_to_Waiver',
