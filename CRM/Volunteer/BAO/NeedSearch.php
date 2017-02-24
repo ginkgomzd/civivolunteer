@@ -370,7 +370,7 @@ class CRM_Volunteer_BAO_NeedSearch {
         'api.CustomGroup.get' => array('id' => '$value.custom_group_id'),
         'api.OptionGroup.get' => array('id' => '$value.option_group_id'),
         'api.OptionValue.get' => array(
-          'option_group_id' => '$value.option_option_group_id',
+          'option_group_id' => '$value.option_group_id',
           'is_active' => 1,
           'sequential' => 0,
           'return' => array('name','value')
@@ -404,8 +404,10 @@ class CRM_Volunteer_BAO_NeedSearch {
       )
     );
 
-    $schema['option_group'] = self::extractChainedApi('api.OptionGroup.get', $result);
-    $schema['option_group']['options'] = self::extractChainedApi('api.OptionValue.get', $result);
+    if (array_key_exists('option_group_id', $schema)) {
+      $schema['option_group'] = self::extractChainedApi('api.OptionGroup.get', $result);
+      $schema['option_group']['options'] = self::extractChainedApi('api.OptionValue.get', $result);
+    }
 
     return $schema;
  }
