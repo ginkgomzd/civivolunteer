@@ -426,21 +426,28 @@ class CRM_Volunteer_BAO_NeedSearch {
   }
 
   /**
-   * returns the fields specified, from an api $result['values']
+   * returns the fields specified, from an api $result.
+   * Can only return fields that are siblings.
+   * Uses 'values' array if it is present.
    *
    * @param api civicrm api result
    * @param array $keys (optional) fields to return, all if empty
    * @return array $result['values']
    */
   static function extractFields($result, $keys=array()) {
-    $keys = array_flip($keys);
+    if (!is_array($result)) {
+      return array();
+    }
+    $_keys = array_flip($keys);
     $items = (array_key_exists('values', $result)) ? $result['values'] : $result;
-    foreach ( $result['values'] as $key => $item ) {
-      $return[$key] = ( count($keys)>0 )
-        ? array_intersect_key($item, $keys)
+    $return = array();
+    foreach ( $items as $key => $item ) {
+      $return[$key] = ( count($_keys)>0 )
+        ? array_intersect_key($item, $_keys)
         : $item ;
     }
-    return (count($return) > 1) ? $return : array_pop($return);
+    return (count($return) == 1 && is_array(current($return)))
+      ? array_pop($return) : $return;
   }
 
 }
