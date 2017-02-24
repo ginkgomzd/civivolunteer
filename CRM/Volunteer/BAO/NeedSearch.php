@@ -309,16 +309,136 @@ class CRM_Volunteer_BAO_NeedSearch {
    * Recommend Needs for Contact
    */
   public static function recommendedNeeds($cid, $dates = NULL) {
-/* Work in Progress */
-    $result = civicrm_api3('CustomGroup', 'get', array(
-      'sequential' => 1,
-      'name' => "Organization_Information",
-      'api.CustomField.get' => array('name' => "Primary_Impact_Area"),
-    ));
 
-    return $result;
+    //Fetch Needs
+    //$needs = civicrm_api3('VolunteerNeed', 'get')['values'];
+
+//    * Fetch Contact Properties
+//    - Skills
+//    - Interests
+//    - Availability
+//
+//   * filter Orgs by Interests/Impacts
+    $schemaImpact = self::getCustomFieldSchema('Primary_Impact_Area');
+    $schemaInterests = self::getCustomFieldSchema('Interests');
+
+//   * filter projects by Skills
+//
+//   * filter needs by availability
+
+    //add Project Data
+
+    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
 
   }
 
+  public static function matchingCustomFieldsMap() {
+    return array(
+      'Interests' => 'Primary_Impact_Area',
+
+      'Background_Check_Opt_In' => 'Background_Check_Opt_In',
+      'Spoken_Languages' => 'Spoken_Languages',
+      'Agreed_to_Waiver' => 'Agreed_to_Waiver',
+      'Group_Volunteer_Interest' => 'Group_Volunteer_Interest',
+      'Availability' => 'Availability',
+      'Board_Service_Opt_In' => 'Board_Service_Opt_In',
+      'How_Often' => 'How_Often',
+      'Volunteer_Emergency_Support_Team_Opt_In' => 'Volunteer_Emergency_Support_Team_Opt_In',
+      'Other_Skills' => 'Other_Skills',
+      'Local_Arlington_Civic_Association_Opt_In' => 'Local_Arlington_Civic_Association_Opt_In',
+      'Spoken_Languages_Other_' => 'Spoken_Languages_Other_',
+    );
+  }
+
+  static function getCustomFieldSchema($field) {
+    $result = civicrm_api3('CustomField', 'get',
+      array(
+        'sequential' => 0,
+        'name' => $field,
+        'is_active' => '1',
+        'return' => array(
+          'column_name',
+          'custom_group_id',
+          'id',
+          'name',
+          'label',
+          'data_type',
+          'html_type',
+          'is_required',
+          'option_group_id',
+        ),
+        'api.CustomGroup.get' => array('id' => '$value.custom_group_id'),
+        'api.OptionGroup.get' => array('id' => '$value.option_group_id'),
+        'api.OptionValue.get' => array(
+          'option_group_id' => '$value.option_option_group_id',
+          'is_active' => 1,
+          'sequential' => 0,
+          'return' => array('name','value')
+        )
+      )
+    );
+
+    $schema = self::extractFields($result,
+      array(
+        'column_name',
+        'custom_group_id',
+        'id',
+        'name',
+        'label',
+        'data_type',
+        'html_type',
+        'is_required',
+        'option_group_id',
+      )
+    );
+
+    $schema['custom_group'] = self::extractChainedApi('api.CustomGroup.get', $result,
+      array(
+        'id',
+        'name',
+       'table_name',
+        'extends',
+        'weight',
+        'is_multiple',
+        'is_active'
+      )
+    );
+
+    $schema['option_group'] = self::extractChainedApi('api.OptionGroup.get', $result);
+    $schema['option_group']['options'] = self::extractChainedApi('api.OptionValue.get', $result);
+
+    return $schema;
+ }
+
+ /**
+  * fetch the values array from an api chain call
+  *
+  * @param string $chainKey identifies the API-Chain call
+  * @param api $result civicrm api result
+  * @param array $keys (optional) fields to return, all if empty
+  * @return array api $result['values']
+  */
+  static function extractChainedApi($chainKey, $result, $keys=array()) {
+    $chained = array_pop(self::extractFields($result, array($chainKey)));
+    return self::extractFields($chained, $keys);
+  }
+
+  /**
+   * returns the fields specified, from an api $result['values']
+   *
+   * @param api civicrm api result
+   * @param array $keys (optional) fields to return, all if empty
+   * @return array $result['values']
+   */
+  static function extractFields($result, $keys=array()) {
+    $keys = array_flip($keys);
+    $items = (array_key_exists('values', $result)) ? $result['values'] : $result;
+    foreach ( $result['values'] as $key => $item ) {
+      $return[$key] = ( count($keys)>0 )
+        ? array_intersect_key($item, $keys)
+        : $item ;
+    }
+    return (count($return) > 1) ? $return : array_pop($return);
+  }
 
 }
