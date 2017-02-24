@@ -350,6 +350,41 @@ class CRM_Volunteer_BAO_NeedSearch {
     );
   }
 
+  static function autoMatchFieldByOptionGroup($fields=array()) {
+    foreach ($fields as $field) {
+      $schema = self::getCustomFieldSchema($field);
+      if (array_key_exists('option_group_id', $schema)) {
+        $meta[$field] = $schema['option_group']['name'];
+      }
+    }
+
+    $matches = array();
+    foreach ($meta as $field => $opt_grp) {
+      $match = array_intersect($meta,array($opt_grp));
+      if (count($match) > 1) {
+        $a = array_keys($match);
+        $b = array_reverse($a);
+        $fields = array_combine($a, $b);
+      }
+
+      end($fields);
+      do  {
+        $field_b = current($fields);
+        $field_a = key($fields);
+        if (array_key_exists($field_b, $fields) === true) {
+          // de-dupe:
+          unset($fields[$field_a]);
+        } else {
+          $matches[$field_a] = $field_b;
+        }
+        ;
+      } while (prev($fields) !== false);
+
+    }
+
+    return $fields;
+  }
+
   static function getCustomFieldSchema($field) {
     $result = civicrm_api3('CustomField', 'get',
       array(
