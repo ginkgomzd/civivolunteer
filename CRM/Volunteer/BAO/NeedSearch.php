@@ -429,7 +429,7 @@ class CRM_Volunteer_BAO_NeedSearch {
    *
    * More details in parseWHEREs().
    *
-   * createSqlStatement( array(
+   * <pre>createSqlStatement( array(
    * 'SELECTS' => array('civicrm_contact' => array('id', 'display_name')),
    * 'JOINS' => array(
    *    array(
@@ -442,8 +442,7 @@ class CRM_Volunteer_BAO_NeedSearch {
    *    array('field' => 'civicrm_contact.first', 'value' => array($value, $type), 'conj' => 'AND'),
    *    array('field' => 'civicrm_contact.last', 'value' => array($value, $type), 'conj' => 'AND')
    *   )
-   * );
-   *
+   * );</pre>
    *
    * @param array $components
    * @return array( 'sql' => ..., 'params' => ... ) for invocation of CRM_Core_DAO::executeQuery()
@@ -513,7 +512,7 @@ class CRM_Volunteer_BAO_NeedSearch {
    *
    * WHERE clause types should conform to CRM_Core_Util_Type::validate()
    *
-   * SAMPLE input
+   * <pre>SAMPLE input
    * $WHERES = array(
    *     array(
    *       'field' => 'civicrm_contact.first',
@@ -527,7 +526,7 @@ class CRM_Volunteer_BAO_NeedSearch {
    *       'type' =>  'String',
    *       'conj' => 'AND'
    *     )
-   *   );
+   *   );</pre>
    *
    * Input-array items indexed by 'AND' or 'OR' will be recursively parsed (for nested clauses).
    *
