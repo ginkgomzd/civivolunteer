@@ -322,17 +322,11 @@ class CRM_Volunteer_BAO_NeedSearch {
     $schemaImpact = self::getCustomFieldSchema('Primary_Impact_Area');
     $schemaInterests = self::getCustomFieldSchema('Interests');
 
-//   * filter projects by Skills
-//
-//   * filter needs by availability
-
-    //add Project Data
-
-//    return $schemaInterests;
 //    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
 
 //    return self:: getCustomFieldSchema('Background_Check_Opt_In');
-    return self::autoMatchFieldByOptionGroup(self::fieldsToRecommendOn());
+//    return self::autoMatchFieldByOptionGroup(self::fieldsToRecommendOn());
+    return self::fetchOrgsByImpactArea('Literacy', 'Advocacy', 'Environment');
 
   }
 
@@ -369,6 +363,224 @@ class CRM_Volunteer_BAO_NeedSearch {
       'Local_Arlington_Civic_Association_Opt_In' => 'Local_Arlington_Civic_Association_Opt_In',
       'Spoken_Languages_Other_' => 'Spoken_Languages_Other_',
     );
+  }
+
+  static function fetchOrgsByImpactArea($interests=array()) {
+    $impactSchema = self::getCustomFieldSchema('Primary_Impact_Area');
+//return $impactSchema;
+
+//[custom_group] => Array
+//        (
+//            [id] => 5
+//            [name] => Organization_Information
+//            [extends] => Organization
+//            [weight] => 6
+//            [is_active] => 1
+//            [table_name] => civicrm_value_organization_information_5
+//            [is_multiple] => 0
+//        )
+//    [id] => 44
+//    [custom_group_id] => 5
+//    [name] => Primary_Impact_Area
+//    [column_name] => primary_impact_area_44
+//    [option_group_id] => 102
+
+//    select civicrm_contact.id, civicrm_contact.display_name, civicrm_contact.contact_type
+//    from civicrm_contact inner join civicrm_value_organization_information_5
+//    ON civicrm_contact.id = civicrm_value_organization_information_5.entity_id where civicrm_contact.id = 6772;
+
+
+//    $where = array(array('field' => 'civicrm_contact.id', 'value' => '6772'));
+
+//    $result = civicrm_api3('Contact', 'get', array(
+//      'contact_type' => 'Organization',
+//      'return' => 'id',
+//      'custom_44' => array('IN' => $interests),
+//    ));
+
+    $select = array('civicrm_contact' => array('id'));
+    $tables = array('civicrm_contact', 'civicrm_value_organization_information_5' );
+    $joins = array(array('tables' => $tables, 'join' => 'INNER JOIN', 'on' => 'civicrm_contact.id = civicrm_value_organization_information_5.entity_id') );
+    $where = array(array('field' => 'civicrm_value_organization_information_5.primary_impact_area_44', 'value' => 'Homelessness'));
+
+    $query = self::createSqlSelectStatement(
+      array(
+        'SELECTS' => $select,
+        'JOINS' => $joins,
+        'WHERES' => $where,
+      ));
+
+    $dao = CRM_Core_DAO::executeQuery($query['sql'], $query['params']);
+//    $query = 'SELECT civicrm_contact.id FROM civicrm_contact INNER JOIN civicrm_value_organization_information_5 on civicrm_contact.id = civicrm_value_organization_information_5.entity_id WHERE civicrm_contact.id = %0';
+//    $params = array(array('6772', 'String'));
+//    $dao = CRM_Core_DAO::executeQuery($query, $params);
+    while ($dao->fetch()) {
+      $result[] = $dao->id;
+    }
+
+    return $result;
+  }
+
+  /**
+   * Prepare query and params for CRM_Core_DAO::executeQuery().
+   *
+   * At minnimum, components must have SELECTS and (TABLES or JOINS).
+   * You may also provide components for WHERES, ORDER_BYS, and GROUP_BYS.
+   *
+   * More details in parseWHEREs().
+   *
+   * createSqlStatement( array(
+   * 'SELECTS' => array('civicrm_contact' => array('id', 'display_name')),
+   * 'JOINS' => array(
+   *    array(
+   *      'tables' => array('civicrm_contact', 'civicrm_value_organization_information_5' ),
+   *      'join' => 'INNER JOIN',
+   *      'on' => 'civicrm_contact.id = civicrm_value_organization_information_5.entity_id')
+   *    )
+   * ),
+   * 'WHERES' => array(
+   *    array('field' => 'civicrm_contact.first', 'value' => array($value, $type), 'conj' => 'AND'),
+   *    array('field' => 'civicrm_contact.last', 'value' => array($value, $type), 'conj' => 'AND')
+   *   )
+   * );
+   *
+   *
+   * @param array $components
+   * @return array( 'sql' => ..., 'params' => ... ) for invocation of CRM_Core_DAO::executeQuery()
+   */
+  static function createSqlSelectStatement($components=array()){
+    if (array_key_exists('SELECTS', $components) &&
+       (array_key_exists('TABLES', $components) || array_key_exists('JOINS', $components))
+      ) { // good
+    }else {
+      // please come again
+      throw new CRM_Exception('minnimum components missing: '.__FILE__.':'.__LINE__);
+    }
+    $SELECTS = CRM_Utils_Array::value('SELECTS', $components);
+    $TABLES = CRM_Utils_Array::value('TABLES', $components, array());
+    $JOINS = CRM_Utils_Array::value('JOINS', $components, array());
+    $WHERES = CRM_Utils_Array::value('WHERES', $components, array());
+    $GROUP_BYS = CRM_Utils_Array::value('GROUP_BYS', $components, array());
+    $ORDER_BYS = CRM_Utils_Array::value('ORDER_BYS', $components, array());
+
+    if (is_array($SELECTS)) {
+      foreach ($SELECTS as $table => $columns) {
+        $tmp = array();
+        foreach ($columns as $col) {
+          $tmp[] = "{$table}.{$col}";
+        }
+        if (isset($clzSelect)) {
+          $clzSelect .= ', ';
+        }
+        $clzSelect .= join(', ', $tmp);
+      }
+    } else {
+      $clzSelect = $SELECTS;
+    }
+
+    foreach($JOINS as $join) {
+      $clzFrom =
+        implode(' '.$join['join'].' ', $join['tables'])
+        .' on '.$join['on'];
+    }
+
+    if (!isset($clzFrom)) {
+      $clzFrom = implode(', ', $TABLES);
+    }
+
+    $parseWHERE = self::parseWHEREs($WHERES);
+    $clzWhere = $parseWHERE['WHERE'];
+    $params = $parseWHERE['params'];
+
+    if (count($GROUP_BYS)) {
+      $clzGroupBy = join(', ', $GROUP_BYS);
+    }
+    if (count($ORDER_BYS)) {
+      $clzOrderBy = join(', ', $ORDER_BYS);
+    }
+
+    return array( 'sql' =>
+      "SELECT {$clzSelect} FROM {$clzFrom}"
+      . ((isset($clzWhere))? " WHERE {$clzWhere}" : '')
+      . ((isset($clzGroupBy))? " GROUP BY {$clzGroupBy}" : '')
+      . ((isset($clzOrderBy))? " ORDER BY {$clzOrderBy}" : ''),
+      'params' => $params
+    );
+  }
+
+  /**
+   * creates SQL WHERE clause and params for CRM_Core_DAO::executeQuery();
+   *
+   * WHERE clause types should conform to CRM_Core_Util_Type::validate()
+   *
+   * SAMPLE input
+   * $WHERES = array(
+   *     array(
+   *       'field' => 'civicrm_contact.first',
+   *       'value' => $value,
+   *       'type' =>  'String',
+   *       'conj' => 'AND'
+   *     ),
+   *     array(
+   *       'field' => 'civicrm_contact.last',
+   *       'value' => $value,
+   *       'type' =>  'String',
+   *       'conj' => 'AND'
+   *     )
+   *   );
+   *
+   * Input-array items indexed by 'AND' or 'OR' will be recursively parsed (for nested clauses).
+   *
+   * SAMPLE output
+   * $params = array( 1 => array( 'value', 'type')) // see CRM_Utils_Type::validate() re type
+   *
+   * @param type $WHERES
+   * @param int $n starting index for params array (needed for recursion)
+   *
+   * @return array('WHERE' => '...', 'params' => array())
+   * @throws CRM_Exception
+   */
+  static function parseWHEREs($WHERES, $n=0) {
+    $params = array();
+    foreach ($WHERES as $key => &$where) {
+      if (!is_int($key) && (strtoupper($key) == 'AND' || strtoupper($key) == 'OR')) {
+        $parsed = self::parseWHERES($where, $n);
+        $where = "({$parsed['WHERE']})";
+        $params = array_merge($params, $parsed['params']);
+        $conj = $key;
+      }
+      if (is_array($where)) {
+        if (!array_key_exists('field', $where)) {
+          throw new CRM_Exception("'field' is required: ".__FILE__.':'.__LINE__);
+        }
+        if (!array_key_exists('value', $where)) {
+          throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
+        }
+        if (!array_key_exists('conj', $where)) {
+          $where['conj'] = 'AND';
+        }
+        if (!array_key_exists('comp', $where)) {
+          $where['comp'] = '=';
+        }
+        if (!array_key_exists($where['type'])) {
+          $where['type'] = 'String';
+        }
+
+        $clause = "{$where['field']} {$where['comp']} %{$n}";
+        $params[$n] = array($where['value'], $where['type']);
+        $conj = strtoupper(trim($where['conj']));
+      }
+
+      if (!isset($conj)) {
+        $conj = 'AND';
+      }
+
+      $clzWhere .= (isset($clzWhere))? " $conj $clause" : $clause;
+
+      $n++;
+    }
+
+    return (isset($clzWhere))? array('WHERE' => $clzWhere, 'params' => $params): NULL;
   }
 
   static function autoMatchFieldByOptionGroup($fields=array()) {
