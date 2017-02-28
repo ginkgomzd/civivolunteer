@@ -433,14 +433,15 @@ class CRM_Volunteer_BAO_NeedSearch {
    * 'SELECTS' => array('civicrm_contact' => array('id', 'display_name')),
    * 'JOINS' => array(
    *    array(
-   *      'tables' => array('civicrm_contact', 'civicrm_value_organization_information_5' ),
+   *      'left' => 'civicrm_contact'
+   *      'right' => 'civicrm_value_organization_information_5',
    *      'join' => 'INNER JOIN',
    *      'on' => 'civicrm_contact.id = civicrm_value_organization_information_5.entity_id')
    *    )
    * ),
    * 'WHERES' => array(
-   *    array('field' => 'civicrm_contact.first', 'value' => array($value, $type), 'conj' => 'AND'),
-   *    array('field' => 'civicrm_contact.last', 'value' => array($value, $type), 'conj' => 'AND')
+   *    array('conj' => 'AND', 'field' => 'civicrm_contact.first', 'value' => $first, 'type' => 'String'),
+   *    array('conj' => 'AND', 'field' => 'civicrm_contact.is_active', 'value' => TRUE, 'type' => 'Boolean')
    *   )
    * );</pre>
    *
@@ -477,10 +478,21 @@ class CRM_Volunteer_BAO_NeedSearch {
       $clzSelect = $SELECTS;
     }
 
-    foreach($JOINS as $join) {
-      $clzFrom =
-        implode(' '.$join['join'].' ', $join['tables'])
-        .' on '.$join['on'];
+    $tables = array();
+    if (isset($JOINS)) {
+      foreach($JOINS as $join) {
+        if (isset($join['left']) && in_array($join['left'], $tables)) {
+          $clzFrom .= "{$join['join']} {$join['right']} on {$join['on']}";
+        } else {
+          $clzFrom .= "{$join['left']} {$join['join']} {$join['right']} on {$join['on']}";
+        }
+        if (!in_array($join['left'], $tables)) {
+          $tables[] = $join['left'];
+        }
+        if (!in_array($join['right'], $tables)) {
+          $tables[] = $join['right'];
+        }
+      }
     }
 
     if (!isset($clzFrom)) {
@@ -508,30 +520,57 @@ class CRM_Volunteer_BAO_NeedSearch {
   }
 
   /**
-   * creates SQL WHERE clause and params for CRM_Core_DAO::executeQuery();
+   * Creates SQL WHERE clause and params for CRM_Core_DAO::executeQuery();
    *
-   * WHERE clause types should conform to CRM_Core_Util_Type::validate()
+   * WHERE clause comparison-value types should conform to CRM_Core_Util_Type::validate()
+   *
+   * At minnimum, supply an array of arrays with, 'field' and 'value'.
+   * Type defaults to 'String'. Conjunction defaults to 'AND'.
+   *
+   * Create a sub-clause by replicating the format as a child of the
+   * array and flagging it for recursive processing with an entry
+   * that specifies the conjucntion, e.g.: 'parens' => 'AND'
+   * Supported keys: <ul><li>parenthetical</li><li>paren</li><li>parenthesis</li><li>sub</li></ul>
+   * For programmer laziness: you can create sub-clauses with items indexed by 'AND' or 'OR'.
+   * Supports only one of each (or you'll overwrite your array entry! duh.
+   * Examples of both syntaxes below.
+   *
+   * SAMPLE output
+   * $params = array( 1 => array( 'value', 'type')) // see CRM_Utils_Type::validate() re type
    *
    * <pre>SAMPLE input
    * $WHERES = array(
    *     array(
-   *       'field' => 'civicrm_contact.first',
-   *       'value' => $value,
-   *       'type' =>  'String',
-   *       'conj' => 'AND'
+   *         'field' => 'civicrm_contact.first',
+   *         'value' => $value,
+   *         'type' =>  'String',
+   *         'conj' => 'AND'
    *     ),
    *     array(
-   *       'field' => 'civicrm_contact.last',
-   *       'value' => $value,
-   *       'type' =>  'String',
-   *       'conj' => 'AND'
+   *         'field' => 'civicrm_contact.last',
+   *         'value' => $value,
+   *         'type' =>  'String',
+   *         'conj' => 'AND'
    *     )
-   *   );</pre>
-   *
-   * Input-array items indexed by 'AND' or 'OR' will be recursively parsed (for nested clauses).
-   *
-   * SAMPLE output
-   * $params = array( 1 => array( 'value', 'type')) // see CRM_Utils_Type::validate() re type
+   *     'OR' => array(
+   *         'field' => 'civicrm_contact.middle',
+   *         'value' => $value,
+   *         'type' =>  'String',
+   *     ),
+   *     array(
+   *         'parenthetical' => 'or',
+   *         array(
+   *             'field' => 'civicrm_address.postal',
+   *             'value' => $value,
+   *             'type' =>  'String'
+   *         ),
+   *         array(
+   *             'field' => 'civicrm_address.state',
+   *             'value' => $value,
+   *             'type' =>  'String'
+   *         )
+   *     ),
+   * );</pre>
    *
    * @param type $WHERES
    * @param int $n starting index for params array (needed for recursion)
@@ -539,49 +578,68 @@ class CRM_Volunteer_BAO_NeedSearch {
    * @return array('WHERE' => '...', 'params' => array())
    * @throws CRM_Exception
    */
-  static function parseWHEREs($WHERES, $n=0) {
+  static function parseWHEREs($WHERES, &$n=0) {
     $params = array();
     foreach ($WHERES as $key => &$where) {
-      if (!is_int($key) && (strtoupper($key) == 'AND' || strtoupper($key) == 'OR')) {
-        $parsed = self::parseWHERES($where, $n);
-        $where = "({$parsed['WHERE']})";
-        $params = array_merge($params, $parsed['params']);
+
+      //explicit syntax for sub-clause
+      $conj = (array_key_exists('paren', $where))? $where['paren']
+        : (array_key_exists('parenthesis', $where))? $where['parenthesis']
+        : (array_key_exists('parenthetical', $where))? $where['parenthetical']
+        : (array_key_exists('sub', $where))? $where['sub'] : NULL;
+        ;
+
+      if (!isset($conj) && (strtoupper($key) == 'AND' || strtoupper($key) == 'OR')) {
+      // lazy syntax for sub-clause
         $conj = $key;
       }
+
+      if (isset($conj)) {
+        $conj = strtoupper($conj);
+
+        $parsed = self::parseWHERES($where, $n);
+        $params = array_merge($params, $parsed['params']);
+
+        $where = "({$parsed['WHERE']})";
+      }
+
       if (is_array($where)) {
-        if (!array_key_exists('field', $where)) {
-          throw new CRM_Exception("'field' is required: ".__FILE__.':'.__LINE__);
-        }
-        if (!array_key_exists('value', $where)) {
-          throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
-        }
         if (!array_key_exists('conj', $where)) {
           $where['conj'] = 'AND';
         }
+        $conj = strtoupper(trim($where['conj']));
+
+        if (!array_key_exists('field', $where)) {
+          throw new CRM_Exception("'field' is required: ".__FILE__.':'.__LINE__);
+        }
         if (!array_key_exists('comp', $where)) {
           $where['comp'] = '=';
+        }
+        if (!array_key_exists('value', $where)) {
+          throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
         }
         if (!array_key_exists($where['type'])) {
           $where['type'] = 'String';
         }
 
-        $clause = "{$where['field']} {$where['comp']} %{$n}";
         $params[$n] = array($where['value'], $where['type']);
-        $conj = strtoupper(trim($where['conj']));
+        $where = "{$where['field']} {$where['comp']} %{$n}";
+        $n++;
       }
 
-      if (!isset($conj)) {
-        $conj = 'AND';
-      }
-
-      $clzWhere .= (isset($clzWhere))? " $conj $clause" : $clause;
-
-      $n++;
+      $clzWhere .= (isset($clzWhere))? " $conj $where" : $where;
     }
 
     return (isset($clzWhere))? array('WHERE' => $clzWhere, 'params' => $params): NULL;
   }
 
+  /**
+   * Given an array of field names,
+   * use metadata to pair fields that share the same option group.
+   *
+   * @param array $fields
+   * @return array map
+   */
   static function autoMatchFieldByOptionGroup($fields=array()) {
     foreach ($fields as $field) {
       $schema = self::getCustomFieldSchema($field);
@@ -611,12 +669,19 @@ class CRM_Volunteer_BAO_NeedSearch {
         }
         ;
       } while (prev($fields) !== false);
-
     }
 
     return $fields;
   }
-
+/**
+ * api.CustomField.get with chained CustomGroup and OptionGroup/Value.
+ * returns a subset of the API result fields, relevant to schemas.
+ * Chained calls are accessible via
+ * <ul><li>custom_group</li><li>option_group</li><li>option_group > Options</li>
+ *
+ * @param type $field
+ * @return array()
+ */
   static function getCustomFieldSchema($field) {
     $result = civicrm_api3('CustomField', 'get',
       array(
