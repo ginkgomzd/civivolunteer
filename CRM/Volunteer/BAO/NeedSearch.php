@@ -739,7 +739,11 @@ class CRM_Volunteer_BAO_NeedSearch {
 
     if (array_key_exists('option_group_id', $schema)) {
       $schema['option_group'] = self::extractChainedApi('api.OptionGroup.get', $result);
-      $schema['option_group']['options'] = self::extractChainedApi('api.OptionValue.get', $result);
+      $result = self::extractChainedApi('api.OptionValue.get', $result);
+      foreach($result as $option) {
+        $options[$option['value']] = $option['name'];
+      }
+      $schema['option_group']['options'] = $options;
     }
 
     return $schema;
