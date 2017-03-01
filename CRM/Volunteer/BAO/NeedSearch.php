@@ -322,11 +322,16 @@ class CRM_Volunteer_BAO_NeedSearch {
     $schemaImpact = self::getCustomFieldSchema('Primary_Impact_Area');
     $schemaInterests = self::getCustomFieldSchema('Interests');
 
+    $interests = civicrm_api3('Contact', 'getValue', array(
+      'return' => 'custom_'.$schemaInterests['id'],
+      'contact_id' => $cid,
+    ));
+
 //    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
 
 //    return self:: getCustomFieldSchema('Background_Check_Opt_In');
 //    return self::autoMatchFieldByOptionGroup(self::fieldsToRecommendOn());
-    return self::fetchOrgsByImpactArea('Literacy', 'Advocacy', 'Environment');
+    return self::fetchProjectsByImpactArea($interests);
 
   }
 
@@ -365,43 +370,36 @@ class CRM_Volunteer_BAO_NeedSearch {
     );
   }
 
-  static function fetchOrgsByImpactArea($interests=array()) {
+  static function fetchProjectsByImpactArea($areas) {
     $impactSchema = self::getCustomFieldSchema('Primary_Impact_Area');
-//return $impactSchema;
-
-//[custom_group] => Array
-//        (
-//            [id] => 5
-//            [name] => Organization_Information
-//            [extends] => Organization
-//            [weight] => 6
-//            [is_active] => 1
-//            [table_name] => civicrm_value_organization_information_5
-//            [is_multiple] => 0
-//        )
-//    [id] => 44
-//    [custom_group_id] => 5
-//    [name] => Primary_Impact_Area
-//    [column_name] => primary_impact_area_44
-//    [option_group_id] => 102
-
-//    select civicrm_contact.id, civicrm_contact.display_name, civicrm_contact.contact_type
-//    from civicrm_contact inner join civicrm_value_organization_information_5
-//    ON civicrm_contact.id = civicrm_value_organization_information_5.entity_id where civicrm_contact.id = 6772;
+    $tblOrgInformation = $impactSchema['custom_group']['table_name'];
+    $fldImpactArea = $impactSchema['column_name'];
+    $beneficiaryRelationshipType = civicrm_api3('OptionValue', 'getValue',
+      array('name' => 'volunteer_beneficiary', 'return' => 'value')
+      );
 
 
-//    $where = array(array('field' => 'civicrm_contact.id', 'value' => '6772'));
+    $select = array('orgs' => array('id'), 'civicrm_volunteer_project_contact' => array('project_id'));
 
-//    $result = civicrm_api3('Contact', 'get', array(
-//      'contact_type' => 'Organization',
-//      'return' => 'id',
-//      'custom_44' => array('IN' => $interests),
-//    ));
+    $joins = array();
+    $joins[] = array('join' => 'INNER JOIN',
+      'left' => 'civicrm_contact orgs', 'right' => $tblOrgInformation ,
+      'on' => "orgs.id = {$tblOrgInformation}.entity_id"
+    );
 
-    $select = array('civicrm_contact' => array('id'));
-    $tables = array('civicrm_contact', 'civicrm_value_organization_information_5' );
-    $joins = array(array('tables' => $tables, 'join' => 'INNER JOIN', 'on' => 'civicrm_contact.id = civicrm_value_organization_information_5.entity_id') );
-    $where = array(array('field' => 'civicrm_value_organization_information_5.primary_impact_area_44', 'value' => 'Homelessness'));
+    $joins[] = array(
+      'join' => 'INNER JOIN',
+      'right' => 'civicrm_volunteer_project_contact',
+      'on' => 'orgs.id = civicrm_volunteer_project_contact.contact_id'
+      . ' AND civicrm_volunteer_project_contact.relationship_type_id = '. $beneficiaryRelationshipType
+    );
+
+
+    $where = array();
+    foreach ($areas as $area) {
+      $where[] = array('conj' => 'OR',
+        'field' => "{$tblOrgInformation}.{$fldImpactArea}", 'value' => $area);
+    }
 
     $query = self::createSqlSelectStatement(
       array(
@@ -409,13 +407,10 @@ class CRM_Volunteer_BAO_NeedSearch {
         'JOINS' => $joins,
         'WHERES' => $where,
       ));
-
+//return CRM_Core_DAO::composeQuery($query['sql'], $query['params']);
     $dao = CRM_Core_DAO::executeQuery($query['sql'], $query['params']);
-//    $query = 'SELECT civicrm_contact.id FROM civicrm_contact INNER JOIN civicrm_value_organization_information_5 on civicrm_contact.id = civicrm_value_organization_information_5.entity_id WHERE civicrm_contact.id = %0';
-//    $params = array(array('6772', 'String'));
-//    $dao = CRM_Core_DAO::executeQuery($query, $params);
     while ($dao->fetch()) {
-      $result[] = $dao->id;
+      $result[] = array('beneficiary_id' => $dao->id, 'project_id' => $dao->project_id);
     }
 
     return $result;
