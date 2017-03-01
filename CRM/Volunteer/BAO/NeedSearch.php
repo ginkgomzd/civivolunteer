@@ -481,10 +481,10 @@ class CRM_Volunteer_BAO_NeedSearch {
     $tables = array();
     if (isset($JOINS)) {
       foreach($JOINS as $join) {
-        if (isset($join['left']) && in_array($join['left'], $tables)) {
-          $clzFrom .= "{$join['join']} {$join['right']} on {$join['on']}";
+        if (isset($join['left'])) {
+          $clzFrom .= " {$join['left']} {$join['join']} {$join['right']} on {$join['on']}";
         } else {
-          $clzFrom .= "{$join['left']} {$join['join']} {$join['right']} on {$join['on']}";
+          $clzFrom .= " {$join['join']} {$join['right']} on {$join['on']}";
         }
         if (!in_array($join['left'], $tables)) {
           $tables[] = $join['left'];
@@ -580,14 +580,19 @@ class CRM_Volunteer_BAO_NeedSearch {
    */
   static function parseWHEREs($WHERES, &$n=0) {
     $params = array();
-    foreach ($WHERES as $key => &$where) {
-
+    foreach ($WHERES as $key => $where) {
+      $conj = $paren = NULL;
       //explicit syntax for sub-clause
-      $conj = (array_key_exists('paren', $where))? $where['paren']
-        : (array_key_exists('parenthesis', $where))? $where['parenthesis']
-        : (array_key_exists('parenthetical', $where))? $where['parenthetical']
-        : (array_key_exists('sub', $where))? $where['sub'] : NULL;
-        ;
+      $paren = (array_key_exists('paren', $where))? 'paren'
+        : ((array_key_exists('parenthesis', $where))? 'parenthesis'
+        : ((array_key_exists('parenthetical', $where))? 'parenthetical'
+        : ((array_key_exists('sub', $where))? 'sub'
+        : NULL)));
+
+       if ($paren) {
+         $conj = $where[$paren];
+         unset($where[$paren]);
+       }
 
       if (!isset($conj) && (strtoupper($key) == 'AND' || strtoupper($key) == 'OR')) {
       // lazy syntax for sub-clause
@@ -618,7 +623,7 @@ class CRM_Volunteer_BAO_NeedSearch {
         if (!array_key_exists('value', $where)) {
           throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
         }
-        if (!array_key_exists($where['type'])) {
+        if (!array_key_exists('type', $where)) {
           $where['type'] = 'String';
         }
 
