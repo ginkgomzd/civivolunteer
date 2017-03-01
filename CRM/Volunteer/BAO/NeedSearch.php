@@ -723,6 +723,7 @@ class CRM_Volunteer_BAO_NeedSearch {
         'option_group_id',
       )
     );
+    $schema['api_column_name'] = "custom_{$schema['id']}";
 
     $schema['custom_group'] = self::extractChainedApi('api.CustomGroup.get', $result,
       array(
