@@ -370,14 +370,13 @@ class CRM_Volunteer_BAO_NeedSearch {
     );
   }
 
-  static function fetchProjectsByImpactArea($areas) {
+  static function getProjectsByImpactAreaSQL($areas) {
     $impactSchema = self::getCustomFieldSchema('Primary_Impact_Area');
     $tblOrgInformation = $impactSchema['custom_group']['table_name'];
     $fldImpactArea = $impactSchema['column_name'];
     $beneficiaryRelationshipType = civicrm_api3('OptionValue', 'getValue',
       array('name' => 'volunteer_beneficiary', 'return' => 'value')
       );
-
 
     $select = array('orgs' => array('id'), 'civicrm_volunteer_project_contact' => array('project_id'));
 
@@ -394,28 +393,55 @@ class CRM_Volunteer_BAO_NeedSearch {
       . ' AND civicrm_volunteer_project_contact.relationship_type_id = '. $beneficiaryRelationshipType
     );
 
-
     $where = array();
     foreach ($areas as $area) {
       $where[] = array('conj' => 'OR',
         'field' => "{$tblOrgInformation}.{$fldImpactArea}", 'value' => $area);
     }
 
-    $query = self::createSqlSelectStatement(
-      array(
+    return array(
         'SELECTS' => $select,
         'JOINS' => $joins,
         'WHERES' => $where,
-      ));
-//return CRM_Core_DAO::composeQuery($query['sql'], $query['params']);
+      );
+  }
+
+  /**
+   * Invokes createSqlSelectStatement()
+   * and CRM_Core_DAO::executeQuery().
+   *
+   * Builds an array based on specified fields.
+   *
+   * @param array $sqlParts array(
+        'SELECTS' => $select,
+        'JOINS' => $joins,
+        'WHERES' => $where,
+      )
+   * @param array $returnFields - fields to return;
+   *   Optional alias syntax: array('field' => 'alias')
+   * @return array of specified fields, or all
+   */
+  static function fetchSelectQuery($sqlParts, $returnFields=NULL) {
+    $query = self::createSqlSelectStatement($sqlParts);
     $dao = CRM_Core_DAO::executeQuery($query['sql'], $query['params']);
+
     while ($dao->fetch()) {
-      $result[] = array('beneficiary_id' => $dao->id, 'project_id' => $dao->project_id);
+      $row = array();
+      if (isset($returnFields)) {
+        foreach ($returnFields as $field => $alias) {
+          if (is_numeric($field)) {
+            $field = $alias;
+          }
+          $row[$alias] = $dao->$field;
+        }
+      } else {
+        $row = $dao->toArray();
+      }
+      $result[] = $row;
     }
 
     return $result;
   }
-
   /**
    * Prepare query and params for CRM_Core_DAO::executeQuery().
    *
