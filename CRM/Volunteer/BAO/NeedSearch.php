@@ -387,6 +387,7 @@ class CRM_Volunteer_BAO_NeedSearch {
     );
 
     $joins[] = array(
+      'left' => 'civicrm_contact orgs',
       'join' => 'INNER JOIN',
       'right' => 'civicrm_volunteer_project_contact',
       'on' => 'orgs.id = civicrm_volunteer_project_contact.contact_id'
