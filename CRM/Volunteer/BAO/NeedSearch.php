@@ -450,6 +450,8 @@ class CRM_Volunteer_BAO_NeedSearch {
    *
    * More details in parseWHEREs().
    *
+   * WARNING: may contain bugs if not specifying both sides of join.
+   *
    * <pre>createSqlStatement( array(
    * 'SELECTS' => array('civicrm_contact' => array('id', 'display_name')),
    * 'JOINS' => array(
@@ -499,25 +501,149 @@ class CRM_Volunteer_BAO_NeedSearch {
       $clzSelect = $SELECTS;
     }
 
-    $tables = array();
     if (isset($JOINS)) {
-      foreach($JOINS as $join) {
-        if (isset($join['left'])) {
-          $clzFrom .= " {$join['left']} {$join['join']} {$join['right']} on {$join['on']}";
-        } else {
-          $clzFrom .= " {$join['join']} {$join['right']} on {$join['on']}";
-        }
-        if (!in_array($join['left'], $tables)) {
-          $tables[] = $join['left'];
-        }
-        if (!in_array($join['right'], $tables)) {
-          $tables[] = $join['right'];
+      $tables = array();
+      $unary = array();
+      $binary = array();
+      $tableCount = array();
+      $unaryTableCount = array();
+      foreach ($JOINS as &$join) {
+        $left = $right = NULL;
+        if (isset($join['left']) && isset($join['right'])) {
+          $left = $join['left'];
+          $right = $join['right'];
+          if (array_key_exists($left, $tableCount)) {
+            $tableCount[$left]++;
+          } else {
+            $tableCount[$left] = 1;
+          }
+          if (array_key_exists($right, $tableCount)) {
+            $tableCount[$right]++;
+          } else {
+            $tableCount[$right] = 1;
+          }
+          $join['binary'] = 1;
+          $binary[] = $join;
+        } else { // unary
+          $left = $right = NULL;
+          $left = (isset($join['left'])) ? $join['left'] : FALSE;
+          $right = (isset($join['right'])) ? $join['right'] : FALSE;
+          // normalize to use 'right'
+          $join['right'] = ($left) ? $left : $right;
+          if (array_key_exists($join['right'], $tableCount)) {
+            $tableCount[$join['right']]++;
+          } else {
+            $tableCount[$join['right']] = 1;
+          }
+          if (array_key_exists(($join['right']), $unaryTableCount)) {
+            $unaryTableCount[$join['right']]++;
+          } else {
+            $unaryTableCount[$join['right']] = 1;
+          }
+          $join['unary'] = 1;
+          $unary[] = $join;
         }
       }
+      reset($JOINS);
+      $primary = FALSE;
+      $maxTries = count($JOINS);
+//      $log = '';
+      $done = FALSE;
+      while (count($JOINS) > 0) {
+        $process = FALSE;
+        $join = array_pop($JOINS);
+
+        /**
+         * TODO: try new strategy - it is highly problematic supporting joins that
+         * don't specify left and right. Try ...
+         *  * Look for join with right-match and un-matched left - make first
+         *  * Build chain of matching joins
+         *  * for each right-join, search for multiple left-matches
+         *  * if remaining join, throw exception
+         *
+         * ... or don't try to auto-order joins at all. Idea was to support
+         * auto-composing querries.
+         *
+         */
+//        $log .= 'SHIFT'.var_export($join, TRUE)."\n ~~~~".count($JOINS);
+        // decide to process or postpone
+        if (
+          ( !$primary && $join['unary'] === 1)
+          || ( // binary:
+            !$primary
+              && ($tableCount[$join['left']] > 1
+              && $tableCount[$join['right']] > 1)
+            || ( $primary && ($tableCount[$join['left']] > 1
+                || $tableCount[$join['right']] > 1 )
+              )
+          || (
+            $primary
+            && $join['binary'] === 1
+            && ($tableCount[$join['left']] < 2
+              || $tableCount[$join['right']] < 2)
+            )
+          )
+        ) {//postpone
+          if ($join['pushed'] > $maxTries) {
+            // failsafe
+            $process = TRUE;
+          } else {
+            if (isset($join['pushed'])) {
+              $join['pushed']++;
+            } else {
+              $join['pushed'] = 1;
+            }
+            $log .= 'POSTPONE:'.var_export($join, TRUE);
+            array_unshift($JOINS, $join);
+            next($JOINS);
+          }
+        } else {
+          $process = TRUE;
+          $primary = ($join['binary'] === 1) ? TRUE: $primary;
+$log .= 'PROCESS:'.var_export($join, TRUE);
+        }
+
+        if ($process) {
+          if (!is_array($join)) {
+            throw new CRM_Exception('Check your array format'.__FILE__.__LINE__);
+          }
+          if (!isset($join['join'])) {
+            $join['join'] = 'INNER JOIN';
+          }
+
+          $left = $right = $both = NULL;
+
+          if ($join['binary'] && !isset($clzFrom)) {
+            $both = true;
+          } else if($join['binary']) {
+            if (in_array($join['left'], $tables)) {
+              $right = $join['right'];
+            }
+            if (in_array($join['right'], $tables)) {
+              $left = $join['left'];
+            }
+            $both = ($left && $right)? TRUE : FALSE ;
+          }
+
+          if ($both) {
+            $clzFrom .= " {$join['left']} {$join['join']} {$join['right']} on {$join['on']}";
+            $tables[] = $join['left'];
+            $tables[] = $join['right'];
+          } else {
+            if ($join['binary'] && in_array($join['right'], $tables)) {
+              $table = $join['left'];
+            } else {
+              $table = $join['right'];
+            }
+            $clzFrom .= " {$join['join']} {$table} on {$join['on']}";
+            $tables[] = $table;
+          }
+        }
+      } // while
     }
 
     if (!isset($clzFrom)) {
-      $clzFrom = implode(', ', $TABLES);
+      $clzFrom = implode(', ', array_merge($TABLES, $tables));
     }
 
     $parseWHERE = self::parseWHEREs($WHERES);
@@ -543,84 +669,50 @@ class CRM_Volunteer_BAO_NeedSearch {
   /**
    * Creates SQL WHERE clause and params for CRM_Core_DAO::executeQuery();
    *
-   * WHERE clause comparison-value types should conform to CRM_Core_Util_Type::validate()
-   *
-   * At minnimum, supply an array of arrays with, 'field' and 'value'.
-   * Type defaults to 'String'. Conjunction defaults to 'AND'.
-   *
-   * Create a sub-clause by replicating the format as a child of the
-   * array and flagging it for recursive processing with an entry
-   * that specifies the conjucntion, e.g.: 'parens' => 'AND'
-   * Supported keys: <ul><li>parenthetical</li><li>paren</li><li>parenthesis</li><li>sub</li></ul>
-   * For programmer laziness: you can create sub-clauses with items indexed by 'AND' or 'OR'.
-   * Supports only one of each (or you'll overwrite your array entry! duh.
-   * Examples of both syntaxes below.
-   *
-   * SAMPLE output
-   * $params = array( 1 => array( 'value', 'type')) // see CRM_Utils_Type::validate() re type
-   *
-   * <pre>SAMPLE input
-   * $WHERES = array(
-   *     array(
-   *         'field' => 'civicrm_contact.first',
-   *         'value' => $value,
-   *         'type' =>  'String',
-   *         'conj' => 'AND'
-   *     ),
-   *     array(
-   *         'field' => 'civicrm_contact.last',
-   *         'value' => $value,
-   *         'type' =>  'String',
-   *         'conj' => 'AND'
-   *     )
-   *     'OR' => array(
-   *         'field' => 'civicrm_contact.middle',
-   *         'value' => $value,
-   *         'type' =>  'String',
-   *     ),
-   *     array(
-   *         'parenthetical' => 'or',
-   *         array(
-   *             'field' => 'civicrm_address.postal',
-   *             'value' => $value,
-   *             'type' =>  'String'
-   *         ),
-   *         array(
-   *             'field' => 'civicrm_address.state',
-   *             'value' => $value,
-   *             'type' =>  'String'
-   *         )
-   *     ),
-   * );</pre>
-   *
    * @param type $WHERES
-   * @param int $n starting index for params array (needed for recursion)
+   * Each test is an array and can have keys for:
+   * 'field', 'value', 'type', 'conj'(unction), and 'comp'(arison).
+   * Type defaults to 'String'. Conjunction defaults to 'AND'. Comparison defaults to '='.
+   *
+   * For parameter escaping and validation, supply 'value'.
+   * Types should conform to CRM_Core_Util_Type::validate()
+   *
+   * Alternate syntaxes (passthrough): <pre>$WHERES = array(
+   * array('field' => 'civicrm_volunteer_need.end_time', 'comp' => '> NOW()'),
+   * array('conj' => 'OR', 'civicrm_volunteer_need.end_time IS NOT NULL'),
+   * '`year` = 2016'
+   * );</pre>
+   * For parenthesis, wrap the clausees in an array and add a magic key to the
+   * wrapper that specifies the conjunction, e.g.: 'parens' => 'AND'
+   * Supported keys: parenthetical; paren; parenthesis; sub;
+   *
+   * @param int $n (optional) starting index for params array (needed for recursion)
    *
    * @return array('WHERE' => '...', 'params' => array())
+   * $params = array( 1 => array( 'value', 'type')) // see CRM_Utils_Type::validate() re type
    * @throws CRM_Exception
    */
   static function parseWHEREs($WHERES, &$n=0) {
     $params = array();
     foreach ($WHERES as $key => $where) {
-      $conj = $paren = NULL;
-      //explicit syntax for sub-clause
-      $paren = (array_key_exists('paren', $where))? 'paren'
-        : ((array_key_exists('parenthesis', $where))? 'parenthesis'
-        : ((array_key_exists('parenthetical', $where))? 'parenthetical'
-        : ((array_key_exists('sub', $where))? 'sub'
-        : NULL)));
-
-       if ($paren) {
-         $conj = $where[$paren];
-         unset($where[$paren]);
-       }
-
-      if (!isset($conj) && (strtoupper($key) == 'AND' || strtoupper($key) == 'OR')) {
-      // lazy syntax for sub-clause
-        $conj = $key;
+      $conj = $paren = $recurse = NULL;
+      if (is_array($where)) {
+        $recurse = self::normalizeParenthetical($where);
+      } else {
+        $passthrough = TRUE;
       }
 
-      if (isset($conj)) {
+      if ($recurse) {
+        //explicit syntax for sub-clause
+        $conj = $where[$recurse];
+        unset($where[$recurse]);
+
+        if (strtoupper($key) == 'AND' || strtoupper($key) == 'OR') {
+        // lazy syntax for sub-clause
+          $conj = $key;
+        }
+
+        $passthrough = TRUE;
         $conj = strtoupper($conj);
 
         $parsed = self::parseWHERES($where, $n);
@@ -629,34 +721,104 @@ class CRM_Volunteer_BAO_NeedSearch {
         $where = "({$parsed['WHERE']})";
       }
 
+      if (!$passthrough) {
+        if (array_key_exists('conj', $where)) {
+          $conj = strtoupper(trim($where['conj']));
+        }
+
+        if (array_key_exists('field', $where)) {
+          if (!array_key_exists('comp', $where)) {
+            $where['comp'] = '=';
+            if (!array_key_exists('value', $where)) {
+              throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
+            }
+          }
+
+          if (array_key_exists('value', $where) ) {
+            if(!array_key_exists('type', $where)) {
+              $where['type'] = 'String';
+            }
+
+            $params[$n] = array($where['value'], $where['type']);
+            $where = "{$where['field']} {$where['comp']} %{$n}";
+            $n++;
+          } else {
+            // e.g. comp is  'IS NULL' or  '> NOW()'
+            $where = "{$where['field']} {$where['comp']}";
+          }
+        } elseif (count($where) === 2) {
+          // array('conj' => or, '<arbitrary where clause string>')
+          unset($where['conj']);
+          $where = array_pop($where);
+        } elseif (count($where) === 1)  {
+          // un-wrap overzealous array nesting
+          $where = array_pop($where);
+        }
+      }
+
+      if (!isset($conj)) {
+        $conj = 'AND';
+      }
+
       if (is_array($where)) {
-        if (!array_key_exists('conj', $where)) {
-          $where['conj'] = 'AND';
-        }
-        $conj = strtoupper(trim($where['conj']));
-
-        if (!array_key_exists('field', $where)) {
-          throw new CRM_Exception("'field' is required: ".__FILE__.':'.__LINE__);
-        }
-        if (!array_key_exists('comp', $where)) {
-          $where['comp'] = '=';
-        }
-        if (!array_key_exists('value', $where)) {
-          throw new CRM_Exception("'value' array required: ".__FILE__.':'.__LINE__);
-        }
-        if (!array_key_exists('type', $where)) {
-          $where['type'] = 'String';
-        }
-
-        $params[$n] = array($where['value'], $where['type']);
-        $where = "{$where['field']} {$where['comp']} %{$n}";
-        $n++;
+        throw new CRM_Exception("oops - Array; check your array format:".__FILE__.':'.__LINE__.
+          var_export($where, TRUE));
+      }
+      if (trim($where) == '') {
+        throw new CRM_Exception("zero-length clause encountered; check your array format: ".__FILE__.':'.__LINE__);
       }
 
       $clzWhere .= (isset($clzWhere))? " $conj $where" : $where;
     }
 
     return (isset($clzWhere))? array('WHERE' => $clzWhere, 'params' => $params): NULL;
+  }
+
+  /**
+   *
+   * @param array $where (by reference)
+   * @return String or False if non-parenthetical
+   */
+  static function normalizeParenthetical(&$where) {
+    $first = NULL;
+    if (!is_array($where)) {
+      throw new CRM_Exception('not array:'.__FILE__.__LINE__);
+    }
+    foreach($where as $key => $v) {
+      if (is_numeric($key)) {
+        // Necessary:
+        // switch 'loose comparison' SUCKS!
+        continue;
+      }
+      switch ($key) {
+        case 'paren':
+        case 'sub':
+        case 'parenthesis':
+        case 'parenthetical':
+          $first = $key;
+          break 2;
+      }
+    }
+
+    if (isset($first)) {
+      $parens = array('parenthetical','parenthesis', 'paren', 'sub');
+      foreach ($parens as $paren) {
+        if ($paren == $first) {
+          continue;
+        }
+        if (array_key_exists($paren, $where)) {
+          $tmp = $where[$paren];
+          unset($where[$paren]);
+          $where[$first] = $tmp;
+        }
+      }
+      //clean-up array_merge_recursive() resultant arrays:
+      if (is_array($where[$first])) {
+        $where[$first] = array_pop($where[$first]);
+      }
+      return $first;
+    }
+    return FALSE;
   }
 
   /**
@@ -699,6 +861,7 @@ class CRM_Volunteer_BAO_NeedSearch {
 
     return $fields;
   }
+
 /**
  * api.CustomField.get with chained CustomGroup and OptionGroup/Value.
  * returns a subset of the API result fields, relevant to schemas.
@@ -813,4 +976,64 @@ class CRM_Volunteer_BAO_NeedSearch {
       ? array_pop($return) : $return;
   }
 
+  /**
+   * YAGNI
+   * un-tested
+   * @param type $WHERES
+   * @param type $params
+   * @param type $n
+   */
+  static function reNumberParams(&$WHERES, &$params, $n) {
+    foreach ($WHERES as &$where) {
+      $match = array();
+      preg_match('#%\n', $where, $match);
+      $oldIndex = $match[0][1];
+      str_replace($match[0], '%'.$n, $where);
+      $newParams[$n++] = $params[$oldIndex];
+    }
+    $params = $newParams;
+  }
+
+  /**
+   * Merge WHERE arrays.
+   *
+   * @param Array $where see format in parseWHEREs()
+   * @param Array $add
+   * @param String $paren - add as parenthetical (specify AND/OR)
+   */
+  static function composeWhereClauses($where, $add, $paren=NULL) {
+    if (!is_array($where)) {
+      throw new CRM_Exception('Missing $where parameter to composeWhereClauses()');
+    }
+    if (isset($paren)) {
+      if (array_key_exists('WHERES', $add)) {
+        $add['WHERES']['paren'] = $paren;
+      } else {
+        $add['paren'] = $paren;
+      }
+    }
+    if (array_key_exists('WHERES', $where)
+      && !array_key_exists('WHERES', $add)) {
+      $add = array('WHERES' => $add);
+    }
+    if (!array_key_exists('WHERES', $where)
+      && array_key_exists('WHERES', $add)) {
+      $add = $add['WHERES'];
+    }
+
+    if (array_key_exists('WHERES', $where)) {
+      if ($paren) {
+        $where['WHERES'][] = $add['WHERES'];
+      } else {
+        $where['WHERES'] = array_merge_recursive($where['WHERES'], $add['WHERES']);
+      }
+    } else {
+      if ($paren) {
+        $where[] = $add;
+      } else {
+        $where = array_merge_recursive($where, $add);
+      }
+    }
+    return $where;
+  }
 }
