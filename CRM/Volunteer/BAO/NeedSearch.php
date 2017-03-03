@@ -310,14 +310,6 @@ class CRM_Volunteer_BAO_NeedSearch {
    */
   public static function recommendedNeeds($cid, $dates = NULL) {
 
-    //Fetch Needs
-    //$needs = civicrm_api3('VolunteerNeed', 'get')['values'];
-
-//    * Fetch Contact Properties
-//    - Skills
-//    - Interests
-//    - Availability
-//
 //   * filter Orgs by Interests/Impacts
     $schemaImpact = self::getCustomFieldSchema('Primary_Impact_Area');
     $schemaInterests = self::getCustomFieldSchema('Interests');
@@ -327,12 +319,133 @@ class CRM_Volunteer_BAO_NeedSearch {
       'contact_id' => $cid,
     ));
 
-//    return array($schemaImpact['option_group']['name'], $schemaInterests['option_group']['name']);
+    $lkpAvailability = self::getCustomFieldSchema('availability');
 
-//    return self:: getCustomFieldSchema('Background_Check_Opt_In');
-//    return self::autoMatchFieldByOptionGroup(self::fieldsToRecommendOn());
-    return self::fetchProjectsByImpactArea($interests);
+    $result = civicrm_api3('Contact', 'getValue', array(
+      'sequential' => 0,
+      'return' => $lkpAvailability['api_column_name'],
+      'contact_id' => $cid
+    ));
 
+    foreach($result as $avail) {
+      $availability[$avail] = $lkpAvailability['option_group']['options'][$avail];
+    }
+
+    $availabilitySql = self::getNeedsByAvailabilitySQL($availability);
+
+    $interestsSQL = self::getProjectsByImpactAreaSQL($interests);
+
+    $needSQL['SELECTS'] = array_merge_recursive($availabilitySql['SELECTS'], $interestsSQL['SELECTS']);
+
+    $needSQL['JOINS'] = array_merge(
+      $availabilitySql['JOINS'],
+      $interestsSQL['JOINS'],
+      array(array(
+          'left' => 'civicrm_volunteer_project',
+          'right' => 'civicrm_volunteer_project_contact',
+          'on' => '`civicrm_volunteer_project`.`id` = `civicrm_volunteer_project_contact`.`project_id`'))
+      );
+
+    $needSQL['WHERES'] = self::composeWhereClauses($availabilitySql['WHERES'], $interestsSQL['WHERES'], 'AND');
+
+    return self::fetchSelectQuery($needSQL);
+  }
+
+  /**
+   * Flexible Need Key
+
+//-- OPEN-ENDED
+//duration IS NULL
+
+//-- FLEXIBLE Time-Frame
+//duration IS NOT NULL AND end_time IS NOT NULL
+
+//  SET SHIFT
+// duration IS NOT NULL AND end_time IS NULL
+   */
+
+/**
+ * SET SHIFT
+ * duration IS NOT NULL AND end_time IS NULL
+ */
+  static function whereNeedIsSetShift() {
+    return array('WHERES' => array(
+      array( 'field' => '`civicrm_volunteer_need`.`duration`', 'comp' => 'IS NOT NULL'),
+      array( 'field' => '`civicrm_volunteer_need`.`end_time`', 'comp' => 'IS NULL')
+    ));
+  }
+
+/**
+ * DAYOFWEEK( n.start_time) NOT IN (1,7) -- weekdays
+ */
+  static function whereNeedIsWeekday() {
+    return array('WHERES' => array(
+      'DAYOFWEEK( `civicrm_volunteer_need`.`start_time` ) NOT in (1,7)'
+    ));
+  }
+/**
+ * DAYOFWEEK( n.start_time ) in (1,7) -- weekends
+ */
+  static function whereNeedIsWeekend() {
+    return array(
+      'DAYOFWEEK( `civicrm_volunteer_need`.`start_time` ) in (1,7)'
+    );
+  }
+/**
+ * HOUR (n.start_time) > 4 --evening
+ */
+  static function whereNeedIsEvening() {
+    return array(
+      'HOUR( `civicrm_volunteer_need`.`start_time` ) > 4'
+    );
+  }
+  static function whereNeedIsNotPassed() {
+    return array(
+        array('field' => '`civicrm_volunteer_need`.`is_active`','value' => 1, 'type' => 'Integer'),
+        array('paren' => 'AND',
+          array('field' => '`civicrm_volunteer_need`.`end_time`', 'comp' => '> NOW()'),
+          array('conj' => 'OR', '`civicrm_volunteer_need`.`end_time` IS NULL')
+        ),
+    );
+  }
+
+  static function getNeedsByAvailabilitySQL($availability) {
+
+    $select = array();
+    $select['civicrm_volunteer_need'] = array(
+      'start_time', 'end_time', 'duration', 'is_flexible'
+    );
+    $select['civicrm_volunteer_project'] = array(
+      'title', 'id as `project_id`'
+    );
+
+    $joins[] = array(
+      'left' => 'civicrm_volunteer_need',
+      'join' => 'INNER JOIN',
+      'right' => 'civicrm_volunteer_project',
+      'on' => 'civicrm_volunteer_need.project_id = civicrm_volunteer_project.id'
+    );
+
+    $where = array();
+    $where = self::whereNeedIsNotPassed();
+    if (in_array('Weekdays', $availability)) {
+      $where = self::composeWhereClauses($where, self::whereNeedIsWeekday(), 'OR');
+    }
+    if (in_array('Weekday_Evenings', $availability)) {
+      $weekdayEvenings = self::composeWhereClauses(self::whereNeedIsWeekday(), self::whereNeedIsEvening());
+      $where = self::composeWhereClauses($where, $weekdayEvenings, 'OR');
+    }
+
+    if (in_array('Weekends', $availability)) {
+      $weekends = self::whereNeedIsWeekend();
+      $where = self::composeWhereClauses($where, $weekends, 'OR');
+    }
+
+    return array(
+      'SELECTS' => $select,
+      'JOINS' => $joins,
+      'WHERES' => $where,
+    );
   }
 
   static function fieldsToRecommendOn() {
